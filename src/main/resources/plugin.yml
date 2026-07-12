@@ -1,0 +1,11 @@
+name: IAPrivacyBridge
+version: '1.0.0'
+main: ru.armenianbanners.iaprivacy.IAPrivacyBridge
+api-version: '1.16'
+author: armenianbanners
+depend: [WorldGuard, WorldEdit, ItemsAdder]
+
+permissions:
+  iaprivacy.create:
+    description: Разрешение на создание приват-зоны через кастомный блок
+    default: true
