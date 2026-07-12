@@ -49,11 +49,6 @@
             <version>7.0.5</version>
             <scope>provided</scope>
             <exclusions>
-                <exclusion>
-                    <groupId>*</groupId>
-                    <artifactId>*</artifactId>
-                </exclusion>
-            </exclusions>
         </dependency>
 
         <!-- WorldEdit API (нужен для BlockVector3 / BukkitAdapter) -->
@@ -63,11 +58,6 @@
             <version>7.2.5</version>
             <scope>provided</scope>
             <exclusions>
-                <exclusion>
-                    <groupId>*</groupId>
-                    <artifactId>*</artifactId>
-                </exclusion>
-            </exclusions>
         </dependency>
 
         <!-- ItemsAdder API -->
