@@ -28,23 +28,6 @@ import java.util.List;
 import java.util.UUID;
 import java.util.logging.Level;
 
-/**
- * IAPrivacyBridge
- * ----------------
- * Мост между ItemsAdder и WorldGuard.
- *
- * Проблема, которую решает этот плагин:
- * ProtectionStones (и вообще любой плагин, слушающий стандартный org.bukkit.event.block.BlockPlaceEvent)
- * не может надёжно распознать установку кастомных блоков ItemsAdder, потому что ItemsAdder
- * сам перехватывает и подменяет установку блока, из-за чего стандартное событие приходит
- * с некорректными данными.
- *
- * Решение: слушаем СОБСТВЕННОЕ событие ItemsAdder (CustomBlockPlaceEvent / CustomBlockBreakEvent),
- * которое ItemsAdder генерирует сам и в котором данные всегда корректны (namespace:id блока,
- * игрок, реальный Block). Если это один из блоков из allowed-blocks в config.yml — создаём
- * (или удаляем) регион WorldGuard напрямую через API, в обход ProtectionStones и его
- * зависимости от битого события.
- */
 public class IAPrivacyBridge extends JavaPlugin implements Listener {
 
     private File dataFile;
@@ -97,16 +80,13 @@ public class IAPrivacyBridge extends JavaPlugin implements Listener {
         return block.getWorld().getName() + ";" + block.getX() + ";" + block.getY() + ";" + block.getZ();
     }
 
-    // =====================================================================================
-    // УСТАНОВКА БЛОКА
-    // =====================================================================================
     @EventHandler(ignoreCancelled = true)
     public void onCustomBlockPlace(CustomBlockPlaceEvent event) {
         String namespacedId = event.getNamespacedID();
         List<String> allowed = getConfig().getStringList("allowed-blocks");
 
         if (!allowed.contains(namespacedId)) {
-            return; // не один из наших приват-блоков - ничего не делаем
+            return;
         }
 
         Player player = event.getPlayer();
@@ -137,7 +117,6 @@ public class IAPrivacyBridge extends JavaPlugin implements Listener {
             return;
         }
 
-        // Проверка на пересечение с другими регионами (в т.ч. со своими же - не пересекаются вообще)
         BlockVector3 min = BlockVector3.at(x1, y1, z1);
         BlockVector3 max = BlockVector3.at(x2, y2, z2);
         String regionName = "iaprivacy_" + UUID.randomUUID().toString().substring(0, 8);
@@ -150,13 +129,12 @@ public class IAPrivacyBridge extends JavaPlugin implements Listener {
             return;
         }
 
-        // Создаём регион
         DefaultDomain owners = new DefaultDomain();
         owners.addPlayer(player.getUniqueId());
         candidate.setOwners(owners);
         candidate.setPriority(0);
 
-        applyFlags(candidate);
+        applyFlags(candidate, player.getName());
 
         regionManager.addRegion(candidate);
         saveRegionManager(regionManager);
@@ -167,9 +145,6 @@ public class IAPrivacyBridge extends JavaPlugin implements Listener {
         player.sendMessage("§aПриват-зона создана! Радиус: " + radius + " блоков.");
     }
 
-    // =====================================================================================
-    // ЛОМАНИЕ БЛОКА
-    // =====================================================================================
     @EventHandler(ignoreCancelled = true)
     public void onCustomBlockBreak(CustomBlockBreakEvent event) {
         String namespacedId = event.getNamespacedID();
@@ -185,7 +160,7 @@ public class IAPrivacyBridge extends JavaPlugin implements Listener {
         String regionName = dataConfig.getString(key);
 
         if (regionName == null) {
-            return; // региона не было записано (возможно был создан не через этот плагин)
+            return;
         }
 
         World world = block.getWorld();
@@ -205,30 +180,39 @@ public class IAPrivacyBridge extends JavaPlugin implements Listener {
         saveData();
     }
 
-    // =====================================================================================
-    // Применение флагов из config.yml к региону (используем строковые имена флагов,
-    // те же самые, что использовались в block1.toml ProtectionStones)
-    // =====================================================================================
-    private void applyFlags(ProtectedRegion region) {
+    private void applyFlags(ProtectedRegion region, String ownerName) {
         FlagRegistry registry = WorldGuard.getInstance().getFlagRegistry();
         List<String> flagLines = getConfig().getStringList("flags");
 
-        // Строковые флаги (greeting/farewell) обрабатываем отдельно и просто,
-        // через встроенные статические поля com.sk89q.worldguard.protection.flags.Flags,
-        // чтобы не связываться с нестабильным generic-парсингом FlagContext.
         for (String line : flagLines) {
-            String[] parts = line.trim().split("\\s+", 2);
+            String trimmed = line.trim();
+
+            com.sk89q.worldguard.protection.flags.RegionGroup group = null;
+            if (trimmed.startsWith("-g ")) {
+                String[] gParts = trimmed.substring(3).trim().split("\\s+", 2);
+                if (gParts.length != 2) continue;
+                group = parseRegionGroup(gParts[0]);
+                trimmed = gParts[1];
+            }
+
+            String[] parts = trimmed.split("\\s+", 2);
             if (parts.length != 2) continue;
 
             String flagName = parts[0].toLowerCase();
-            String value = parts[1];
+            String value = parts[1].replace("{owner}", ownerName);
 
             if (flagName.equals("greeting")) {
                 region.setFlag(com.sk89q.worldguard.protection.flags.Flags.GREET_MESSAGE, value);
+                if (group != null) {
+                    region.setFlag(com.sk89q.worldguard.protection.flags.Flags.GREET_MESSAGE.getRegionGroupFlag(), group);
+                }
                 continue;
             }
             if (flagName.equals("farewell")) {
                 region.setFlag(com.sk89q.worldguard.protection.flags.Flags.FAREWELL_MESSAGE, value);
+                if (group != null) {
+                    region.setFlag(com.sk89q.worldguard.protection.flags.Flags.FAREWELL_MESSAGE.getRegionGroupFlag(), group);
+                }
                 continue;
             }
 
@@ -244,12 +228,42 @@ public class IAPrivacyBridge extends JavaPlugin implements Listener {
                         : value.equalsIgnoreCase("deny") ? StateFlag.State.DENY : null;
                 if (state != null) {
                     region.setFlag((StateFlag) flag, state);
+                    if (group != null) {
+                        setRegionGroupSafely(region, flag, group);
+                    }
                 } else {
                     getLogger().warning("Некорректное значение для флага '" + flagName + "': " + value);
                 }
             } else {
                 getLogger().warning("Флаг '" + flagName + "' не является StateFlag и не поддержан явно - пропущен.");
             }
+        }
+    }
+
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private void setRegionGroupSafely(ProtectedRegion region, Flag<?> flag,
+                                       com.sk89q.worldguard.protection.flags.RegionGroup group) {
+        com.sk89q.worldguard.protection.flags.RegionGroupFlag groupFlag = flag.getRegionGroupFlag();
+        if (groupFlag != null) {
+            region.setFlag((Flag) groupFlag, group);
+        }
+    }
+
+    private com.sk89q.worldguard.protection.flags.RegionGroup parseRegionGroup(String name) {
+        switch (name.toLowerCase()) {
+            case "members":
+                return com.sk89q.worldguard.protection.flags.RegionGroup.MEMBERS;
+            case "non-members":
+                return com.sk89q.worldguard.protection.flags.RegionGroup.NON_MEMBERS;
+            case "owners":
+                return com.sk89q.worldguard.protection.flags.RegionGroup.OWNERS;
+            case "non-owners":
+                return com.sk89q.worldguard.protection.flags.RegionGroup.NON_OWNERS;
+            case "all":
+                return com.sk89q.worldguard.protection.flags.RegionGroup.ALL;
+            default:
+                getLogger().warning("Неизвестная группа флага: '" + name + "', используется ALL.");
+                return com.sk89q.worldguard.protection.flags.RegionGroup.ALL;
         }
     }
 
