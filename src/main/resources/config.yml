@@ -2,30 +2,24 @@
 # IAPrivacyBridge - конфигурация
 # ==================================================================================================
 
-# Радиус защищаемой территории вокруг блока (в блоках)
 radius: 20
-
-# true = защита от неба до бедрока (весь столб). false = только radius по высоте от блока.
 full-height: true
 
-# Список ТОЧНЫХ namespaced ID кастомных блоков ItemsAdder, которые должны создавать приват.
-# Формат: "namespace:id" - именно то значение, которое возвращает F3 -> ItemsAdder, либо
-# можно посмотреть в конфиге блока в plugins/ItemsAdder/contents/<namespace>/configs/*.yml
-# Только эти блоки будут работать как приват-камень. Все остальные блоки (в т.ч. другие
-# кастомные блоки ItemsAdder и обычные ванильные блоки) НЕ будут ничего приватить.
 allowed-blocks:
   - "armenianbanners:armenian_wool_banner"
-  # - "armenianbanners:another_privacy_block"
-  # - "armenianbanners:third_variant"
 
-# Флаги, применяемые к региону при создании (те же имена, что использует WorldGuard).
-# Формат каждой строки: "имя_флага значение"
+# Можно добавить префикс "-g <группа>" перед именем флага (как в ProtectionStones):
+#   -g non-members  = только для чужих игроков (НЕ владелец и НЕ участники)
+#   -g members      = только для участников
+#   -g owners       = только для владельца
+# Без префикса флаг действует АБСОЛЮТНО НА ВСЕХ, включая владельца - именно поэтому
+# владелец не мог строить у себя раньше.
 flags:
   - "pvp allow"
   - "wither-damage allow"
   - "block-break allow"
-  - "block-place deny"
+  - "-g non-members block-place deny"
   - "creeper-explosion deny"
   - "ghast-fireball deny"
-  - "greeting Вы вошли в чужую приват-зону"
-  - "farewell Вы покинули приват-зону"
+  - "greeting Вы вошли в зону игрока {owner}"
+  - "farewell Вы покинули зону игрока {owner}"
